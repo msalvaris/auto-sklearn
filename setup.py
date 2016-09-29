@@ -43,7 +43,7 @@ setuptools.setup(
                       'Cython',
                       'ConfigSpace',
                       'pynisher',
-                      'smac',
+                      'smac==0.0.1',
                       'pyrfr'],
     test_suite='nose.collector',
     scripts=['scripts/autosklearn'],
@@ -53,4 +53,4 @@ setuptools.setup(
     license='BSD',
     platforms=['Linux'],
     classifiers=[],
-    url='automl.github.io/auto-sklearn')
+    url='https://automl.github.io/auto-sklearn')
