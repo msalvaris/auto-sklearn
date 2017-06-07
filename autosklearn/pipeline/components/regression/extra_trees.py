@@ -57,11 +57,10 @@ class ExtraTreesRegressor(AutoSklearnRegressionAlgorithm):
         self.estimator = None
 
     def fit(self, X, y, refit=False):
-        if self.estimator is None or refit:
-            self.iterative_fit(X, y, n_iter=1, refit=refit)
-
+        self.iterative_fit(X, y, n_iter=1, refit=refit)
         while not self.configuration_fully_fitted():
             self.iterative_fit(X, y, n_iter=1)
+
         return self
 
     def iterative_fit(self, X, y, n_iter=1, refit=False):
@@ -76,22 +75,24 @@ class ExtraTreesRegressor(AutoSklearnRegressionAlgorithm):
                 float(self.max_features) * (np.log(num_features) + 1))
             # Use at most half of the features
             max_features = max(1, min(int(X.shape[1] / 2), max_features))
-            self.estimator = ETR(
-                n_estimators=0, criterion=self.criterion,
-                max_depth=self.max_depth,
-                min_samples_split=self.min_samples_split,
-                min_samples_leaf=self.min_samples_leaf,
-                bootstrap=self.bootstrap,
-                max_features=max_features, max_leaf_nodes=self.max_leaf_nodes,
-                oob_score=self.oob_score, n_jobs=self.n_jobs,
-                verbose=self.verbose,
-                random_state=self.random_state,
-                warm_start=True
-            )
-        tmp = self.estimator  # TODO copy ?
-        tmp.n_estimators += n_iter
-        tmp.fit(X, y,)
-        self.estimator = tmp
+            self.estimator = ETR(n_estimators=n_iter,
+                                 criterion=self.criterion,
+                                 max_depth=self.max_depth,
+                                 min_samples_split=self.min_samples_split,
+                                 min_samples_leaf=self.min_samples_leaf,
+                                 bootstrap=self.bootstrap,
+                                 max_features=max_features,
+                                 max_leaf_nodes=self.max_leaf_nodes,
+                                 oob_score=self.oob_score,
+                                 n_jobs=self.n_jobs,
+                                 verbose=self.verbose,
+                                 random_state=self.random_state,
+                                 warm_start=True)
+        else:
+            self.estimator.n_estimators += n_iter
+
+        self.estimator.fit(X, y,)
+
         return self
 
     def configuration_fully_fitted(self):
@@ -125,18 +126,17 @@ class ExtraTreesRegressor(AutoSklearnRegressionAlgorithm):
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
 
-        n_estimators = cs.add_hyperparameter(Constant("n_estimators", 100))
-        criterion = cs.add_hyperparameter(Constant("criterion", "mse"))
-        max_features = cs.add_hyperparameter(UniformFloatHyperparameter(
-            "max_features", 0.5, 5, default=1))
+        n_estimators = Constant("n_estimators", 100)
+        criterion = Constant("criterion", "mse")
+        max_features = UniformFloatHyperparameter(
+            "max_features", 0.5, 5, default=1)
 
-        max_depth = cs.add_hyperparameter(
-            UnParametrizedHyperparameter(name="max_depth", value="None"))
+        max_depth = UnParametrizedHyperparameter(name="max_depth", value="None")
 
-        min_samples_split = cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_split", 2, 20, default=2))
-        min_samples_leaf = cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_leaf", 1, 20, default=1))
+        min_samples_split = UniformIntegerHyperparameter(
+            "min_samples_split", 2, 20, default=2)
+        min_samples_leaf = UniformIntegerHyperparameter(
+            "min_samples_leaf", 1, 20, default=1)
 
         # Unparametrized, we use min_samples as regularization
         # max_leaf_nodes_or_max_depth = UnParametrizedHyperparameter(
@@ -148,8 +148,12 @@ class ExtraTreesRegressor(AutoSklearnRegressionAlgorithm):
         # max_leaf_nodes = UnParametrizedHyperparameter(name="max_leaf_nodes",
         #                                              value="None")
 
-        bootstrap = cs.add_hyperparameter(CategoricalHyperparameter(
-            "bootstrap", ["True", "False"], default="False"))
+        bootstrap = CategoricalHyperparameter(
+            "bootstrap", ["True", "False"], default="False")
+
+        cs.add_hyperparameters([n_estimators, criterion, max_features,
+                                max_depth, min_samples_split, min_samples_leaf,
+                                bootstrap])
 
         # Conditions
         # Not applicable because max_leaf_nodes is no legal value of the parent

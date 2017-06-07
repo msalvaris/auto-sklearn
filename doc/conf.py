@@ -46,7 +46,6 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.autosummary',
 # Configure the extensions
 numpydoc_show_class_members = False
 autosummary_generate = True
-autodoc_default_flags = ['members', 'inherited-members']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -62,7 +61,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'AutoSklearn'
-copyright = u'2014-2016, Matthias Feurer, Aaron Klein, Katharina ' \
+copyright = u'2014-2017, Matthias Feurer, Aaron Klein, Katharina ' \
             u'Eggensperger, Jost Tobias Springenberg, Manuel Blum, Frank Hutter'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -132,9 +131,11 @@ html_theme_options = {
     # be in the form [(name, page), ..]
     'navbar_links': [
         ('Start', 'index'),
+        ('Releases', 'releases'),
+        ('Installation', 'installation'),
+        ('Manual', 'manual'),
         ('API', 'api'),
         ('Extending', 'extending'),
-        ('Resampling', 'resampling'),
     ],
 
     # Render the next and previous page links in navbar. (Default: true)
@@ -321,3 +322,16 @@ texinfo_documents = [('index', 'AutoSklearn', u'AutoSklearn Documentation',
 # texinfo_show_urls = 'footnote'
 # If true, do not generate a @detailmenu in the "Top" node's menu.
 # texinfo_no_detailmenu = False
+
+# This value selects what content will be inserted into the main body of an
+# autoclass directive. The possible values are:
+# "class"
+# Only the class’ docstring is inserted. This is the default.
+# You can still document __init__ as a separate method using automethod or
+# the members option to autoclass.
+#"both"
+# Both the class’ and the __init__ method’s docstring are concatenated and
+# inserted.
+# "init"
+# Only the __init__ method’s docstring is inserted.
+autoclass_content = 'both'

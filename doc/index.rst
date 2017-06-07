@@ -27,68 +27,67 @@ Example
 *******
 
     >>> import autosklearn.classification
+    >>> import sklearn.model_selection
     >>> import sklearn.datasets
-    >>> digits = sklearn.datasets.load_digits()
-    >>> X = digits.data
-    >>> y = digits.target
-    >>> import numpy as np
-    >>> indices = np.arange(X.shape[0])
-    >>> np.random.shuffle(indices)
-    >>> X = X[indices]
-    >>> y = y[indices]
-    >>> X_train = X[:1000]
-    >>> y_train = y[:1000]
-    >>> X_test = X[1000:]
-    >>> y_test = y[1000:]
+    >>> import sklearn.metrics
+    >>> X, y = sklearn.datasets.load_digits(return_X_y=True)
+    >>> X_train, X_test, y_train, y_test = \
+            sklearn.model_selection.train_test_split(X, y, random_state=1)
     >>> automl = autosklearn.classification.AutoSklearnClassifier()
     >>> automl.fit(X_train, y_train)
-    >>> print(automl.score(X_test,y_test))
+    >>> y_hat = automl.predict(X_test)
+    >>> print("Accuracy score", sklearn.metrics.accuracy_score(y_test, y_hat))
 
 
 This will run for one hour should result in an accuracy above 0.98.
 
 
-Installation
-************
-**Prerequisities**: *auto-sklearn* is written in python and was developed
-with Ubuntu. It should run on other Linux distributions, but won't work on a MAC
-or on a windows PC. It is built around scikit-learn 0.17.1
-
-Please install all dependencies manually with:
-
-.. code:: bash
-
-    pip install -r https://raw.githubusercontent.com/automl/auto-sklearn/master/requirements.txt
-
-Then install *auto-sklearn*
-
-.. code:: bash
-
-    pip install auto-sklearn
-
-We recommend installing *auto-sklearn* into a `virtual environment
-<http://docs.python-guide.org/en/latest/dev/virtualenvs/>`_ or into an
-`anaconda environment <https://www.continuum.io/downloads>`_..
-
 Manual
 ******
 
+* :ref:`installation`
+* :ref:`manual`
 * :ref:`API`
-* :ref:`resampling`
 * :ref:`extending`
 
 
 License
 *******
 *auto-sklearn* is licensed the same way as *scikit-learn*,
-namely the 3-clause BSD license. The subprojects it uses, most notably SMAC,
-can have different licenses.
+namely the 3-clause BSD license.
+
+Citing auto-sklearn
+*******************
+
+If you use auto-sklearn in a scientific publication, we would appreciate
+references to the following paper:
+
+
+ `Efficient and Robust Automated Machine Learning
+ <https://papers.nips.cc/paper/5872-efficient-and-robust-automated-machine-learning>`_,
+ Feurer *et al.*, Advances in Neural Information Processing Systems 28 (NIPS 2015).
+
+ Bibtex entry::
+
+     @incollection{NIPS2015_5872,
+        title = {Efficient and Robust Automated Machine Learning},
+        author = {Feurer, Matthias and Klein, Aaron and Eggensperger, Katharina and
+                  Springenberg, Jost and Blum, Manuel and Hutter, Frank},
+        booktitle = {Advances in Neural Information Processing Systems 28},
+        editor = {C. Cortes and N. D. Lawrence and D. D. Lee and M. Sugiyama and R. Garnett},
+        pages = {2962--2970},
+        year = {2015},
+        publisher = {Curran Associates, Inc.},
+        url = {http://papers.nips.cc/paper/5872-efficient-and-robust-automated-machine-learning.pdf}
+     }
 
 Contributing
 ************
-*auto-sklearn* is developed mainly by the `Machine Learning for Automated
-Algorithm Design <http://aad.informatik.uni-freiburg.de>`_ group at the
-University of Freiburg.
+
+We appreciate all contribution to auto-sklearn, from bug reports and
+documentation to new features. If you want to contribute to the code, you can
+pick an issue from the `issue tracker <https://github.com/automl/auto-sklearn/issues>`_
+which is marked with `Needs contributer`.
 
 .. note::
 
@@ -98,22 +97,5 @@ University of Freiburg.
     .com/automl/auto-sklearn/issues>`_ before starting to work.
 
 When developing new features, please create a new branch from the development
-branch. Prior to submitting a pull request, make sure that all tests are
+branch. When to submitting a pull request, make sure that all tests are
 still passing.
-
-Contributors
-************
-
-* Matthias Feurer
-* Katharina Eggensperger
-* Jost Tobias Springenberg
-* Aaron Klein
-* Anatolii Domashnev
-* Alexander Sapronov
-* Stefan Falkner
-* Manuel Blum
-* Hector Mendoza
-* Farooq Ahmed Zuberi
-* Frank Hutter
-
-

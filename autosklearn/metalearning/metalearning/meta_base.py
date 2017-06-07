@@ -1,7 +1,6 @@
-import logging
-
 import pandas as pd
 
+from ...util.logging_ import get_logger
 from ..input import aslib_simple
 from ..metafeatures.metafeature import DatasetMetafeatures
 from ConfigSpace.configuration_space import Configuration
@@ -31,7 +30,7 @@ class MetaBase(object):
         - aslib_directory: directory with a problem instance in the aslib format
         """
 
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
         self.configuration_space = configuration_space
         self.aslib_directory = aslib_directory
@@ -45,7 +44,7 @@ class MetaBase(object):
         for algorithm_id in self.configurations:
             configuration = self.configurations[algorithm_id]
             try:
-                configurations[algorithm_id] = \
+                configurations[str(algorithm_id)] = \
                     (Configuration(configuration_space, values=configuration))
             except (ValueError, KeyError) as e:
                 self.logger.debug("Error reading configurations: %s", e)
@@ -63,6 +62,11 @@ class MetaBase(object):
         runs = pd.Series([], name=name)
         for metric in self.algorithm_runs.keys():
             self.algorithm_runs[metric].append(runs)
+
+    def remove_dataset(self, name):
+        self.metafeatures.drop(name, inplace=True)
+        for key in self.algorithm_runs:
+            self.algorithm_runs[key].drop(name, inplace=True)
 
     def get_runs(self, dataset_name, performance_measure=None):
         """Return a list of all runs for a dataset."""
@@ -98,7 +102,7 @@ class MetaBase(object):
         return all_metafeatures
 
     def get_configuration_from_algorithm_index(self, idx):
-        return self.configurations[idx]
+        return self.configurations[str(idx)]
         #configuration = self.configurations[idx]
         #configuration = Configuration(self.configuration_space,
         # **configuration)

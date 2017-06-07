@@ -24,6 +24,7 @@ class MultinomialNB(AutoSklearnClassificationAlgorithm):
         self.estimator = None
 
     def fit(self, X, y):
+        self.iterative_fit(X, y, n_iter=1, refit=True)
         while not self.configuration_fully_fitted():
             self.iterative_fit(X, y, n_iter=1)
         return self
@@ -118,9 +119,8 @@ class MultinomialNB(AutoSklearnClassificationAlgorithm):
         fit_prior = CategoricalHyperparameter(name="fit_prior",
                                               choices=["True", "False"],
                                               default="True")
-        
-        cs.add_hyperparameter(alpha)
-        cs.add_hyperparameter(fit_prior)
+
+        cs.add_hyperparameters([alpha, fit_prior])
         
         return cs
 

@@ -16,7 +16,6 @@ class RandomForest(AutoSklearnClassificationAlgorithm):
                  min_weight_fraction_leaf, bootstrap, max_leaf_nodes,
                  random_state=None, n_jobs=1, class_weight=None):
         self.n_estimators = n_estimators
-        self.estimator_increment = 10
         self.criterion = criterion
         self.max_features = max_features
         self.max_depth = max_depth
@@ -31,10 +30,8 @@ class RandomForest(AutoSklearnClassificationAlgorithm):
         self.estimator = None
 
     def fit(self, X, y, sample_weight=None, refit=False):
-        if self.estimator is None or refit:
-            self.iterative_fit(X, y, n_iter=1, sample_weight=sample_weight,
-                               refit=refit)
-
+        self.iterative_fit(X, y, n_iter=1, sample_weight=sample_weight,
+                           refit=True)
         while not self.configuration_fully_fitted():
             self.iterative_fit(X, y, n_iter=1, sample_weight=sample_weight)
         return self
@@ -47,7 +44,7 @@ class RandomForest(AutoSklearnClassificationAlgorithm):
 
         if self.estimator is None:
             self.n_estimators = int(self.n_estimators)
-            if self.max_depth == "None":
+            if self.max_depth == "None" or self.max_depth is None:
                 self.max_depth = None
             else:
                 self.max_depth = int(self.max_depth)
@@ -65,7 +62,7 @@ class RandomForest(AutoSklearnClassificationAlgorithm):
                 self.bootstrap = True
             else:
                 self.bootstrap = False
-            if self.max_leaf_nodes == "None":
+            if self.max_leaf_nodes == "None" or self.max_leaf_nodes is None:
                 self.max_leaf_nodes = None
 
             # initial fit of only increment trees
@@ -123,18 +120,22 @@ class RandomForest(AutoSklearnClassificationAlgorithm):
     @staticmethod
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
-        cs.add_hyperparameter(Constant("n_estimators", 100))
-        cs.add_hyperparameter(CategoricalHyperparameter(
-            "criterion", ["gini", "entropy"], default="gini"))
-        cs.add_hyperparameter(UniformFloatHyperparameter(
-            "max_features", 0.5, 5, default=1))
-        cs.add_hyperparameter(UnParametrizedHyperparameter("max_depth", "None"))
-        cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_split", 2, 20, default=2))
-        cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_leaf", 1, 20, default=1))
-        cs.add_hyperparameter(UnParametrizedHyperparameter("min_weight_fraction_leaf", 0.))
-        cs.add_hyperparameter(UnParametrizedHyperparameter("max_leaf_nodes", "None"))
-        cs.add_hyperparameter(CategoricalHyperparameter(
-            "bootstrap", ["True", "False"], default="True"))
+        n_estimators = Constant("n_estimators", 100)
+        criterion = CategoricalHyperparameter(
+            "criterion", ["gini", "entropy"], default="gini")
+        max_features = UniformFloatHyperparameter(
+            "max_features", 0.5, 5, default=1)
+        max_depth = UnParametrizedHyperparameter("max_depth", "None")
+        min_samples_split = UniformIntegerHyperparameter(
+            "min_samples_split", 2, 20, default=2)
+        min_samples_leaf = UniformIntegerHyperparameter(
+            "min_samples_leaf", 1, 20, default=1)
+        min_weight_fraction_leaf = UnParametrizedHyperparameter("min_weight_fraction_leaf", 0.)
+        max_leaf_nodes = UnParametrizedHyperparameter("max_leaf_nodes", "None")
+        bootstrap = CategoricalHyperparameter(
+            "bootstrap", ["True", "False"], default="True")
+        cs.add_hyperparameters([n_estimators, criterion, max_features,
+                                max_depth, min_samples_split, min_samples_leaf,
+                                min_weight_fraction_leaf, max_leaf_nodes,
+                                bootstrap])
         return cs

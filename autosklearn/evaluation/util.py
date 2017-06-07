@@ -1,40 +1,32 @@
-from autosklearn.constants import *
-from autosklearn.metrics import sanitize_array, \
-    regression_metrics, classification_metrics
+import queue
 
 
 __all__ = [
-    'calculate_score',
+    'get_last_result'
 ]
 
 
+def get_last_result(queue_):
+    stack = []
+    while True:
+        try:
+            rval = queue_.get(timeout=1)
+        except queue.Empty:
+            break
 
-
-def calculate_score(solution, prediction, task_type, metric, num_classes,
-                    all_scoring_functions=False, logger=None):
-    if task_type not in TASK_TYPES:
-        raise NotImplementedError(task_type)
-
-    if all_scoring_functions:
-        score = dict()
-        if task_type in REGRESSION_TASKS:
-            # TODO put this into the regression metric itself
-            cprediction = sanitize_array(prediction)
-            for metric_ in REGRESSION_METRICS:
-                score[metric_] = regression_metrics.calculate_score(
-                    metric_, solution, cprediction)
+        # Check if there is a special placeholder value which tells us that
+        # we don't have to wait until the queue times out in order to
+        # retrieve the final value!
+        if 'final_queue_element' in rval:
+            del rval['final_queue_element']
+            do_break = True
         else:
-            for metric_ in CLASSIFICATION_METRICS:
-                score[metric_] = classification_metrics.calculate_score(
-                    metric_, solution, prediction, task_type)
+            do_break = False
+        stack.append(rval)
+        if do_break:
+            break
 
+    if len(stack) == 0:
+        raise queue.Empty
     else:
-        if task_type in REGRESSION_TASKS:
-            # TODO put this into the regression metric itself
-            cprediction = sanitize_array(prediction)
-            score = regression_metrics.calculate_score(
-                metric, solution, cprediction)
-        else:
-            score = classification_metrics.calculate_score(
-                metric, solution, prediction, task=task_type)
-    return score
+        return stack.pop()

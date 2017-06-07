@@ -1,4 +1,3 @@
-from __future__ import print_function
 import os
 import unittest
 
@@ -18,7 +17,7 @@ class MetaBaseTest(unittest.TestCase):
         data_dir = os.path.join(data_dir, 'test_meta_base_data')
         os.chdir(data_dir)
 
-        cs = autosklearn.pipeline.classification.SimpleClassificationPipeline\
+        cs = autosklearn.pipeline.classification.SimpleClassificationPipeline()\
             .get_hyperparameter_search_space()
 
         self.base = MetaBase(cs, data_dir)
@@ -63,4 +62,18 @@ class MetaBaseTest(unittest.TestCase):
                                                   'NumberOfClasses'])
         self.assertIsInstance(mf, pd.DataFrame)
         self.assertEqual(mf.shape, (140, 2))
+
+    def test_remove_dataset(self):
+        name = "1000_acc"
+        for key in self.base.algorithm_runs:
+            self.assertIn(name, self.base.algorithm_runs[key].index)
+        self.assertIn(name, self.base.metafeatures.index)
+        metafeatures_shape = self.base.metafeatures.shape
+        self.base.remove_dataset(name)
+        for key in self.base.algorithm_runs:
+            self.assertNotIn(name, self.base.algorithm_runs[key].index)
+        self.assertNotIn(name, self.base.metafeatures.index)
+        # Check that only one thing was removed
+        self.assertEqual(self.base.metafeatures.shape,
+                         (metafeatures_shape[0] - 1, metafeatures_shape[1]))
 

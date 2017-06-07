@@ -1,17 +1,17 @@
-# -*- encoding: utf-8 -*-
-from __future__ import print_function
 import os
 import time
+import warnings
 
 import numpy as np
 from sklearn.dummy import DummyClassifier, DummyRegressor
+from smac.tae.execute_ta_run import StatusType
 
 import autosklearn.pipeline.classification
 import autosklearn.pipeline.regression
 from autosklearn.constants import *
-from autosklearn.util import Backend
 from autosklearn.pipeline.implementations.util import convert_multioutput_multiclass_to_multilabel
-from autosklearn.evaluation.util import calculate_score
+from autosklearn.metrics import calculate_score
+from autosklearn.util.logging_ import get_logger
 
 from ConfigSpace import Configuration
 
@@ -22,14 +22,14 @@ __all__ = [
 
 
 class MyDummyClassifier(DummyClassifier):
-    def __init__(self, configuration, random_states):
+    def __init__(self, configuration, random_state, init_params=None):
         self.configuration = configuration
         if configuration == 1:
             super(MyDummyClassifier, self).__init__(strategy="uniform")
         else:
             super(MyDummyClassifier, self).__init__(strategy="most_frequent")
 
-    def pre_transform(self, X, y, fit_params=None, init_params=None):
+    def pre_transform(self, X, y, fit_params=None):
         if fit_params is None:
             fit_params = {}
         return X, fit_params
@@ -53,14 +53,14 @@ class MyDummyClassifier(DummyClassifier):
 
 
 class MyDummyRegressor(DummyRegressor):
-    def __init__(self, configuration, random_states):
+    def __init__(self, configuration, random_state, init_params=None):
         self.configuration = configuration
         if configuration == 1:
             super(MyDummyRegressor, self).__init__(strategy='mean')
         else:
             super(MyDummyRegressor, self).__init__(strategy='median')
 
-    def pre_transform(self, X, y, fit_params=None, init_params=None):
+    def pre_transform(self, X, y, fit_params=None):
         if fit_params is None:
             fit_params = {}
         return X, fit_params
@@ -81,30 +81,37 @@ class MyDummyRegressor(DummyRegressor):
 
 
 class AbstractEvaluator(object):
-    def __init__(self, Datamanager, output_dir, configuration=None,
-                 with_predictions=False,
+    def __init__(self, datamanager, backend, queue, metric,
+                 configuration=None,
                  all_scoring_functions=False,
                  seed=1,
-                 output_y_test=False,
+                 output_y_hat_optimization=True,
                  num_run=None,
-                 subsample=None,):
+                 subsample=None,
+                 include=None,
+                 exclude=None,
+                 disable_file_output=False):
 
         self.starttime = time.time()
 
-        self.output_dir = output_dir
         self.configuration = configuration
-        self.D = Datamanager
+        self.backend = backend
+        self.queue = queue
 
-        self.X_valid = Datamanager.data.get('X_valid')
-        self.X_test = Datamanager.data.get('X_test')
+        self.datamanager = datamanager
+        self.include = include
+        self.exclude = exclude
 
-        self.metric = Datamanager.info['metric']
-        self.task_type = Datamanager.info['task']
+        self.X_valid = datamanager.data.get('X_valid')
+        self.X_test = datamanager.data.get('X_test')
+
+        self.metric = metric
+        self.task_type = datamanager.info['task']
         self.seed = seed
 
-        self.output_y_test = output_y_test
-        self.with_predictions = with_predictions
+        self.output_y_hat_optimization = output_y_hat_optimization
         self.all_scoring_functions = all_scoring_functions
+        self.disable_file_output = disable_file_output
 
         if self.task_type in REGRESSION_TASKS:
             if not isinstance(self.configuration, Configuration):
@@ -121,46 +128,49 @@ class AbstractEvaluator(object):
                     autosklearn.pipeline.classification.SimpleClassificationPipeline
             self.predict_function = self._predict_proba
 
+        categorical_mask = []
+        for feat in datamanager.feat_type:
+            if feat.lower() == 'numerical':
+                categorical_mask.append(False)
+            elif feat.lower() == 'categorical':
+                categorical_mask.append(True)
+            else:
+                raise ValueError(feat)
+        if np.sum(categorical_mask) > 0:
+            self._init_params = {'one_hot_encoding:categorical_features':
+                                     categorical_mask}
+        else:
+            self._init_params = {}
+
         if num_run is None:
             num_run = 0
         self.num_run = num_run
 
         self.subsample = subsample
 
-        self.backend = Backend(None, self.output_dir)
-        self.model = self.model_class(self.configuration, self.seed)
+        logger_name = '%s(%d):%s' % (self.__class__.__name__.split('.')[-1],
+                                     self.seed, self.datamanager.name)
+        self.logger = get_logger(logger_name)
 
-    def fit_predict_and_loss(self):
-        """Fit model(s) according to resampling strategy, predict for the
-        validation set and return the loss and predictions on the validation
-        set.
-
-        Provides a closed interface in which all steps of the target
-        algorithm are performed without any communication with other
-        processes. Useful for cross-validation because it allows to train a
-        model, predict for the validation set and then forget the model in
-        order to save main memory.
-        """
-        raise NotImplementedError()
-
-    def iterative_fit(self):
-        """Fit a model iteratively.
-
-        Fitting can be interrupted in order to use a partially trained model."""
-        raise NotImplementedError()
-
-    def predict_and_loss(self):
-        """Use current model to predict on the validation set and calculate
-        loss.
-
-         Should be used when using iterative fitting."""
-        raise NotImplementedError()
-
-    def predict(self):
-        """Use the current model to predict on the validation set.
-
-        Should only be used to create dummy predictions."""
-        raise NotImplementedError()
+    def _get_model(self):
+        if not isinstance(self.configuration, Configuration):
+            model = self.model_class(configuration=self.configuration,
+                                     random_state=self.seed,
+                                     init_params=self._init_params)
+        else:
+            dataset_properties = {'task': self.task_type,
+                                  'sparse': self.datamanager.info['is_sparse'] == 1,
+                                  'multilabel': self.task_type ==
+                                                MULTILABEL_CLASSIFICATION,
+                                  'multiclass': self.task_type ==
+                                                MULTICLASS_CLASSIFICATION}
+            model = self.model_class(config=self.configuration,
+                                     dataset_properties=dataset_properties,
+                                     random_state=self.seed,
+                                     include=self.include,
+                                     exclude=self.exclude,
+                                     init_params=self._init_params)
+        return model
 
     def _loss(self, y_true, y_hat):
         if not isinstance(self.configuration, Configuration):
@@ -170,8 +180,7 @@ class AbstractEvaluator(object):
                 return 1.0
 
         score = calculate_score(
-            y_true, y_hat, self.task_type,
-            self.metric, self.D.info['label_num'],
+            y_true, y_hat, self.task_type, self.metric,
             all_scoring_functions=self.all_scoring_functions)
 
         if hasattr(score, '__len__'):
@@ -181,8 +190,8 @@ class AbstractEvaluator(object):
 
         return err
 
-    def finish_up(self, loss=None, opt_pred=None, valid_pred=None,
-                  test_pred=None, file_output=True):
+    def finish_up(self, loss, opt_pred, valid_pred, test_pred,
+                  file_output=True, final_call=True):
         """This function does everything necessary after the fitting is done:
 
         * predicting
@@ -191,16 +200,13 @@ class AbstractEvaluator(object):
         We use it as the signal handler so we can recycle the code for the
         normal usecase and when the runsolver kills us here :)"""
 
-        # try:
         self.duration = time.time() - self.starttime
-        if loss is None:
-            loss, opt_pred, valid_pred, test_pred = self.predict_and_loss()
 
         if file_output:
             loss_, additional_run_info_ = self.file_output(
-                loss, opt_pred, valid_pred, test_pred)
+                opt_pred, valid_pred, test_pred)
         else:
-            loss_, additional_run_info_ = None, None
+            loss_, additional_run_info_ = None, {}
 
         if loss_ is not None:
             return self.duration, loss_, self.seed, additional_run_info_
@@ -208,49 +214,64 @@ class AbstractEvaluator(object):
         num_run = str(self.num_run).zfill(5)
         if isinstance(loss, dict):
             loss_ = loss
-            loss = loss_[self.D.info['metric']]
+            loss = loss_[self.metric.name]
         else:
             loss_ = {}
-        additional_run_info = ';'.join(['%s: %s' %
-                                (METRIC_TO_STRING[
-                                     metric] if metric in METRIC_TO_STRING else metric,
-                                 value)
-                                for metric, value in loss_.items()])
-        additional_run_info += ';' + 'duration: ' + str(self.duration)
-        additional_run_info += ';' + 'num_run:' + num_run
 
-        return self.duration, loss, self.seed, additional_run_info
+        additional_run_info = {metric_name: value for metric_name, value in
+                               loss_.items()}
+        additional_run_info['duration'] = self.duration
+        additional_run_info['num_run'] = self.num_run
 
-    def file_output(self, loss, Y_optimization_pred, Y_valid_pred, Y_test_pred):
+        rval_dict = {'loss': loss,
+                     'additional_run_info': additional_run_info,
+                     'status': StatusType.SUCCESS}
+        if final_call:
+            rval_dict['final_queue_element'] = True
+
+        self.queue.put(rval_dict)
+
+    def file_output(self, Y_optimization_pred, Y_valid_pred, Y_test_pred):
+        if self.disable_file_output is True:
+            return None, {}
+
         seed = self.seed
 
-        if self.Y_optimization.shape[0] != Y_optimization_pred.shape[0]:
-            return 2.0, "Targets %s and prediction %s don't have the same " \
-            "length. Probably training didn't finish" % (
-                self.Y_optimization.shape, Y_optimization_pred.shape)
+        # self.Y_optimization can be None if we use partial-cv, then,
+        # obviously no output should be saved.
+        if self.Y_optimization is not None and \
+                self.Y_optimization.shape[0] != Y_optimization_pred.shape[0]:
+            return 1.0, {'error': "Targets %s and prediction %s don't have "
+                                  "the same length. Probably training didn't "
+                                  "finish" % (self.Y_optimization.shape,
+                                              Y_optimization_pred.shape)}
 
         if not np.all(np.isfinite(Y_optimization_pred)):
-            return 2.0, 'Model predictions for optimization set contains NaNs.'
-        if Y_valid_pred is not None and \
-                not np.all(np.isfinite(Y_valid_pred)):
-            return 2.0, 'Model predictions for validation set contains NaNs.'
-        if Y_test_pred is not None and \
-                not np.all(np.isfinite(Y_test_pred)):
-            return 2.0, 'Model predictions for test set contains NaNs.'
+            return 1.0, {'error': 'Model predictions for optimization set ' \
+                                  'contains NaNs.'}
+        for y, s in [[Y_valid_pred, 'validation'], [Y_test_pred, 'test']]:
+            if y is not None and not np.all(np.isfinite(y)):
+                return 1.0, {'error': 'Model predictions for %s set contains '
+                                      'NaNs.' % s}
 
         num_run = str(self.num_run).zfill(5)
-        if os.path.exists(self.backend.get_model_dir()):
-            self.backend.save_model(self.model, self.num_run, seed)
 
-        if self.output_y_test:
-            try:
-                os.makedirs(self.output_dir)
-            except OSError:
-                pass
-            self.backend.save_targets_ensemble(self.Y_optimization)
+        if not isinstance(self.disable_file_output, list) or \
+                'model' not in self.disable_file_output:
+            if os.path.exists(self.backend.get_model_dir()):
+                self.backend.save_model(self.model, self.num_run, seed)
 
-        self.backend.save_predictions_as_npy(Y_optimization_pred, 'ensemble',
-                                             seed, num_run)
+        if not isinstance(self.disable_file_output, list) or \
+                'y_optimization' not in self.disable_file_output:
+            if self.output_y_hat_optimization:
+                try:
+                    os.makedirs(self.backend.output_directory)
+                except OSError:
+                    pass
+                self.backend.save_targets_ensemble(self.Y_optimization)
+
+            self.backend.save_predictions_as_npy(Y_optimization_pred, 'ensemble',
+                                                 seed, num_run)
 
         if Y_valid_pred is not None:
             self.backend.save_predictions_as_npy(Y_valid_pred, 'valid',
@@ -263,12 +284,29 @@ class AbstractEvaluator(object):
         return None, None
 
     def _predict_proba(self, X, model, task_type, Y_train):
-        Y_pred = model.predict_proba(X, batch_size=1000)
+        def send_warnings_to_log(message, category, filename, lineno,
+                                 file=None, line=None):
+            self.logger.debug('%s:%s: %s:%s' %
+                              (filename, lineno, category.__name__, message))
+            return
+
+        with warnings.catch_warnings():
+            warnings.showwarning = send_warnings_to_log
+            Y_pred = model.predict_proba(X, batch_size=1000)
+
         Y_pred = self._ensure_prediction_array_sizes(Y_pred, Y_train)
         return Y_pred
 
     def _predict_regression(self, X, model, task_type, Y_train=None):
-        Y_pred = model.predict(X)
+        def send_warnings_to_log(message, category, filename, lineno,
+                                 file=None, line=None):
+            self.logger.debug('%s:%s: %s:%s' %
+                              (filename, lineno, category.__name__, message))
+            return
+
+        with warnings.catch_warnings():
+            warnings.showwarning = send_warnings_to_log
+            Y_pred = model.predict(X)
 
         if len(Y_pred.shape) == 1:
             Y_pred = Y_pred.reshape((-1, 1))
@@ -276,7 +314,7 @@ class AbstractEvaluator(object):
         return Y_pred
 
     def _ensure_prediction_array_sizes(self, prediction, Y_train):
-        num_classes = self.D.info['label_num']
+        num_classes = self.datamanager.info['label_num']
 
         if self.task_type == MULTICLASS_CLASSIFICATION and \
                 prediction.shape[1] < num_classes:
@@ -299,3 +337,17 @@ class AbstractEvaluator(object):
             return new_predictions
 
         return prediction
+
+    def _fit_and_suppress_warnings(self, model, X, y):
+        def send_warnings_to_log(message, category, filename, lineno,
+                                 file=None, line=None):
+            self.logger.debug('%s:%s: %s:%s' %
+                (filename, lineno, category.__name__, message))
+            return
+
+        with warnings.catch_warnings():
+            warnings.showwarning = send_warnings_to_log
+            model.fit(X, y)
+
+        return model
+

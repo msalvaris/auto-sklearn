@@ -21,6 +21,7 @@ class PassiveAggressive(AutoSklearnClassificationAlgorithm):
         self.estimator = None
 
     def fit(self, X, y):
+        self.iterative_fit(X, y, n_iter=1, refit=True)
         while not self.configuration_fully_fitted():
             self.iterative_fit(X, y, n_iter=1)
 
@@ -103,8 +104,5 @@ class PassiveAggressive(AutoSklearnClassificationAlgorithm):
                                               log=True)
         C = UniformFloatHyperparameter("C", 1e-5, 10, 1, log=True)
         cs = ConfigurationSpace()
-        cs.add_hyperparameter(loss)
-        cs.add_hyperparameter(fit_intercept)
-        cs.add_hyperparameter(n_iter)
-        cs.add_hyperparameter(C)
+        cs.add_hyperparameters([loss, fit_intercept, n_iter, C])
         return cs

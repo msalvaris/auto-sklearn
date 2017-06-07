@@ -1,20 +1,101 @@
-from __future__ import print_function
 import glob
 import os
 import tempfile
 import time
-
+import random
 import lockfile
 import numpy as np
-
-import six.moves.cPickle as pickle
-
+import pickle
+import shutil
 from autosklearn.util import logging_ as logging
 
 
 __all__ = [
     'Backend'
 ]
+
+
+def create(temporary_directory,
+           output_directory,
+           delete_tmp_folder_after_terminate=True,
+           delete_output_folder_after_terminate=True):
+    context = BackendContext(temporary_directory, output_directory,
+                             delete_tmp_folder_after_terminate,
+                             delete_output_folder_after_terminate)
+    backend = Backend(context)
+
+    return backend
+
+
+class BackendContext(object):
+
+    def __init__(self,
+                 temporary_directory,
+                 output_directory,
+                 delete_tmp_folder_after_terminate,
+                 delete_output_folder_after_terminate):
+        self._prepare_directories(temporary_directory, output_directory)
+        self.delete_tmp_folder_after_terminate = delete_tmp_folder_after_terminate
+        self.delete_output_folder_after_terminate = delete_output_folder_after_terminate
+        self._logger = logging.get_logger(__name__)
+        self.create_directories()
+
+    @property
+    def output_directory(self):
+        return self.__output_directory
+
+    @property
+    def temporary_directory(self):
+        return self.__temporary_directory
+
+    def _prepare_directories(self, temporary_directory, output_directory):
+        random_number = random.randint(0, 10000)
+        pid = os.getpid()
+
+        self.__temporary_directory = temporary_directory \
+            if temporary_directory \
+            else '/tmp/autosklearn_tmp_%d_%d' % (pid, random_number)
+
+        self.__output_directory = output_directory \
+            if output_directory \
+            else '/tmp/autosklearn_output_%d_%d' % (pid, random_number)
+
+    def create_directories(self):
+        try:
+            os.makedirs(self.temporary_directory)
+        except OSError:
+            pass
+        try:
+            os.makedirs(self.output_directory)
+        except OSError:
+            pass
+
+    def __del__(self):
+        self.delete_directories(force=False)
+
+    def delete_directories(self, force=True):
+        if self.delete_output_folder_after_terminate or force:
+            try:
+                shutil.rmtree(self.output_directory)
+            except Exception:
+                if self._logger is not None:
+                    self._logger.warning("Could not delete output dir: %s" %
+                                         self.output_directory)
+                else:
+                    print("Could not delete output dir: %s" %
+                          self.output_directory)
+
+        if self.delete_tmp_folder_after_terminate or force:
+            try:
+                shutil.rmtree(self.temporary_directory)
+            except Exception:
+                if self._logger is not None:
+                    self._logger.warning("Could not delete tmp dir: %s" %
+                                  self.temporary_directory)
+                    pass
+                else:
+                    print("Could not delete tmp dir: %s" %
+                          self.temporary_directory)
 
 
 class Backend(object):
@@ -25,11 +106,9 @@ class Backend(object):
     * true targets of the ensemble
     """
 
-    def __init__(self, output_directory, temporary_directory):
+    def __init__(self, context):
         self.logger = logging.get_logger(__name__)
-
-        self.output_directory = output_directory
-        self.temporary_directory = temporary_directory
+        self.context = context
 
         # Create the temporary directory if it does not yet exist
         try:
@@ -45,6 +124,14 @@ class Backend(object):
         self.internals_directory = os.path.join(self.temporary_directory,
                                                 ".auto-sklearn")
         self._make_internals_directory()
+
+    @property
+    def output_directory(self):
+        return self.context.output_directory
+
+    @property
+    def temporary_directory(self):
+        return self.context.temporary_directory
 
     def _make_internals_directory(self):
         try:
@@ -80,6 +167,12 @@ class Backend(object):
             start_time = float(fh.read())
         return start_time
 
+    def get_smac_output_directory(self, seed):
+        return os.path.join(self.temporary_directory, 'smac3-output_%d' % seed)
+
+    def get_smac_output_glob(self):
+        return os.path.join(self.temporary_directory, 'smac3-output_*_run1')
+
     def _get_targets_ensemble_filename(self):
         return os.path.join(self.internals_directory,
                             "true_targets_ensemble.npy")
@@ -92,14 +185,28 @@ class Backend(object):
 
         filepath = self._get_targets_ensemble_filename()
 
+        # Try to open the file without locking it, this will reduce the
+        # number of times where we erronously keep a lock on the ensemble
+        # targets file although the process already was killed
+        try:
+            existing_targets = np.load(filepath)
+            if existing_targets.shape[0] > targets.shape[0] or \
+                    (existing_targets.shape == targets.shape and
+                         np.allclose(existing_targets, targets)):
+
+                return filepath
+        except Exception:
+            pass
+
         lock_path = filepath + '.lock'
         with lockfile.LockFile(lock_path):
             if os.path.exists(filepath):
-                existing_targets = np.load(filepath)
-                if existing_targets.shape[0] > targets.shape[0] or \
-                        (existing_targets.shape == targets.shape and
-                         np.allclose(existing_targets, targets)):
-                    return filepath
+                with open(filepath, 'rb') as fh:
+                    existing_targets = np.load(fh)
+                    if existing_targets.shape[0] > targets.shape[0] or \
+                            (existing_targets.shape == targets.shape and
+                             np.allclose(existing_targets, targets)):
+                        return filepath
 
             with tempfile.NamedTemporaryFile('wb', dir=os.path.dirname(
                     filepath), delete=False) as fh:
@@ -115,7 +222,8 @@ class Backend(object):
 
         lock_path = filepath + '.lock'
         with lockfile.LockFile(lock_path):
-            targets = np.load(filepath)
+            with open(filepath, 'rb') as fh:
+                targets = np.load(fh)
 
         return targets
 
@@ -140,7 +248,7 @@ class Backend(object):
     def load_datamanager(self):
         filepath = self._get_datamanager_pickle_filename()
         lock_path = filepath + '.lock'
-        with lockfile.LockFile(lock_path, timeout=60):
+        with lockfile.LockFile(lock_path):
             with open(filepath, 'rb') as fh:
                 return pickle.load(fh)
 
@@ -156,20 +264,24 @@ class Backend(object):
                 filepath), delete=False) as fh:
             pickle.dump(model, fh, -1)
             tempname = fh.name
+
         os.rename(tempname, filepath)
 
-    def load_all_models(self, seed):
+    def list_all_models(self, seed):
         model_directory = self.get_model_dir()
-
         if seed >= 0:
             model_files = glob.glob(os.path.join(model_directory,
                                                  '%s.*.model' % seed))
         else:
             model_files = os.listdir(model_directory)
-            model_files = [os.path.join(model_directory, mf) for mf in model_files]
+            model_files = [os.path.join(model_directory, mf)
+                           for mf in model_files]
 
+        return model_files
+
+    def load_all_models(self, seed):
+        model_files = self.list_all_models(seed)
         models = self.load_models_by_file_names(model_files)
-
         return models
 
     def load_models_by_file_names(self, model_file_names):
@@ -179,7 +291,8 @@ class Backend(object):
             # File names are like: {seed}.{index}.model
             if model_file.endswith('/'):
                 model_file = model_file[:-1]
-            if not model_file.endswith('.model'):
+            if not model_file.endswith('.model') and \
+                    not model_file.endswith('.model'):
                 continue
 
             basename = os.path.basename(model_file)
@@ -203,11 +316,11 @@ class Backend(object):
 
     def load_model_by_seed_and_id(self, seed, idx):
         model_directory = self.get_model_dir()
+
         model_file_name = '%s.%s.model' % (seed, idx)
         model_file_path = os.path.join(model_directory, model_file_name)
-
         with open(model_file_path, 'rb') as fh:
-            return (pickle.load(fh))
+            return pickle.load(fh)
 
     def get_ensemble_dir(self):
         return os.path.join(self.internals_directory, 'ensembles')

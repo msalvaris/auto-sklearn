@@ -28,6 +28,7 @@ class LibLinear_Preprocessor(AutoSklearnPreprocessingAlgorithm):
 
     def fit(self, X, Y):
         import sklearn.svm
+        from sklearn.feature_selection import SelectFromModel
 
         self.C = float(self.C)
         self.tol = float(self.tol)
@@ -39,17 +40,22 @@ class LibLinear_Preprocessor(AutoSklearnPreprocessingAlgorithm):
         if self.class_weight == "None":
             self.class_weight = None
 
-        self.preprocessor = sklearn.svm.LinearSVC(penalty=self.penalty,
-                                                  loss=self.loss,
-                                                  dual=self.dual,
-                                                  tol=self.tol,
-                                                  C=self.C,
-                                                  class_weight=self.class_weight,
-                                                  fit_intercept=self.fit_intercept,
-                                                  intercept_scaling=self.intercept_scaling,
-                                                  multi_class=self.multi_class,
-                                                  random_state=self.random_state)
-        self.preprocessor.fit(X, Y)
+        estimator = sklearn.svm.LinearSVC(penalty=self.penalty,
+                                          loss=self.loss,
+                                          dual=self.dual,
+                                          tol=self.tol,
+                                          C=self.C,
+                                          class_weight=self.class_weight,
+                                          fit_intercept=self.fit_intercept,
+                                          intercept_scaling=self.intercept_scaling,
+                                          multi_class=self.multi_class,
+                                          random_state=self.random_state)
+
+        estimator.fit(X, Y)
+        self.preprocessor = SelectFromModel(estimator=estimator,
+                                            threshold='mean',
+                                            prefit=True)
+
         return self
 
     def transform(self, X):
@@ -72,20 +78,20 @@ class LibLinear_Preprocessor(AutoSklearnPreprocessingAlgorithm):
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
 
-        penalty = cs.add_hyperparameter(Constant("penalty", "l1"))
-        loss = cs.add_hyperparameter(CategoricalHyperparameter(
-            "loss", ["hinge", "squared_hinge"], default="squared_hinge"))
-        dual = cs.add_hyperparameter(Constant("dual", "False"))
+        penalty = Constant("penalty", "l1")
+        loss = CategoricalHyperparameter(
+            "loss", ["hinge", "squared_hinge"], default="squared_hinge")
+        dual = Constant("dual", "False")
         # This is set ad-hoc
-        tol = cs.add_hyperparameter(UniformFloatHyperparameter(
-            "tol", 1e-5, 1e-1, default=1e-4, log=True))
-        C = cs.add_hyperparameter(UniformFloatHyperparameter(
-            "C", 0.03125, 32768, log=True, default=1.0))
-        multi_class = cs.add_hyperparameter(Constant("multi_class", "ovr"))
+        tol = UniformFloatHyperparameter("tol", 1e-5, 1e-1, default=1e-4, log=True)
+        C = UniformFloatHyperparameter("C", 0.03125, 32768, log=True, default=1.0)
+        multi_class = Constant("multi_class", "ovr")
         # These are set ad-hoc
-        fit_intercept = cs.add_hyperparameter(Constant("fit_intercept", "True"))
-        intercept_scaling = cs.add_hyperparameter(Constant(
-            "intercept_scaling", 1))
+        fit_intercept = Constant("fit_intercept", "True")
+        intercept_scaling = Constant("intercept_scaling", 1)
+
+        cs.add_hyperparameters([penalty, loss, dual, tol, C, multi_class,
+                                fit_intercept, intercept_scaling])
 
         penalty_and_loss = ForbiddenAndConjunction(
             ForbiddenEqualsClause(penalty, "l1"),

@@ -1,18 +1,16 @@
-from __future__ import print_function
-
-import logging
-
 import numpy as np
 import pandas as pd
 
 from sklearn.neighbors import NearestNeighbors
 import sklearn.utils
 
+from ....util.logging_ import get_logger
+
 
 
 class KNearestDatasets(object):
     def __init__(self, metric='l1', random_state=None, metric_params=None):
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_logger(__name__)
 
         self.metric = metric
         self.model = None
@@ -53,8 +51,9 @@ class KNearestDatasets(object):
             if not np.isfinite(runs[dataset_name]).any():
                 best_configuration_per_dataset[dataset_name] = None
             else:
-                best_configuration_per_dataset[dataset_name] = \
-                    runs[dataset_name].argmin(skipna=True)
+                configuration_idx = runs[dataset_name].index[
+                    np.nanargmin(runs[dataset_name].values)]
+                best_configuration_per_dataset[dataset_name] = configuration_idx
 
         self.best_configuration_per_dataset = best_configuration_per_dataset
 
@@ -105,6 +104,7 @@ class KNearestDatasets(object):
             k = self.num_datasets
 
         X_train, x = self._scale(self.metafeatures, x)
+        x = x.values.reshape((1, -1))
         self._nearest_neighbors.fit(X_train)
         distances, neighbor_indices = self._nearest_neighbors.kneighbors(
             x, n_neighbors=k, return_distance=True)
@@ -154,7 +154,7 @@ class KNearestDatasets(object):
         return kbest[:k]
 
     def _scale(self, metafeatures, other):
-        assert isinstance(other, pd.Series)
+        assert isinstance(other, pd.Series), type(other)
         assert other.values.dtype == np.float64
         scaled_metafeatures = metafeatures.copy(deep=True)
         other = other.copy(deep=True)

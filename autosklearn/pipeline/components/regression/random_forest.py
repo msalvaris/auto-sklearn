@@ -28,12 +28,11 @@ class RandomForest(AutoSklearnRegressionAlgorithm):
         self.n_jobs = n_jobs
         self.estimator = None
 
-    def fit(self, X, y, sample_weight=None, refit=False):
-        if self.estimator is None or refit:
-            self.iterative_fit(X, y, n_iter=1, refit=refit)
-
+    def fit(self, X, y, sample_weight=None):
+        self.iterative_fit(X, y, n_iter=1, refit=True)
         while not self.configuration_fully_fitted():
             self.iterative_fit(X, y, n_iter=1)
+
         return self
 
     def iterative_fit(self, X, y, n_iter=1, refit=False):
@@ -44,7 +43,7 @@ class RandomForest(AutoSklearnRegressionAlgorithm):
 
         if self.estimator is None:
             self.n_estimators = int(self.n_estimators)
-            if self.max_depth == "None":
+            if self.max_depth == "None" or self.max_depth is None:
                 self.max_depth = None
             else:
                 self.max_depth = int(self.max_depth)
@@ -62,11 +61,11 @@ class RandomForest(AutoSklearnRegressionAlgorithm):
                 self.bootstrap = True
             else:
                 self.bootstrap = False
-            if self.max_leaf_nodes == "None":
+            if self.max_leaf_nodes == "None" or self.max_leaf_nodes is None:
                 self.max_leaf_nodes = None
 
             self.estimator = RandomForestRegressor(
-                n_estimators=0,
+                n_estimators=n_iter,
                 criterion=self.criterion,
                 max_features=max_features,
                 max_depth=self.max_depth,
@@ -78,11 +77,10 @@ class RandomForest(AutoSklearnRegressionAlgorithm):
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
                 warm_start=True)
+        else:
+            self.estimator.n_estimators += n_iter
 
-        tmp = self.estimator
-        tmp.n_estimators += n_iter
-        tmp.fit(X, y)
-        self.estimator = tmp
+        self.estimator.fit(X, y)
         return self
 
     def configuration_fully_fitted(self):
@@ -112,18 +110,24 @@ class RandomForest(AutoSklearnRegressionAlgorithm):
     @staticmethod
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
-        cs.add_hyperparameter(Constant("n_estimators", 100))
-        cs.add_hyperparameter(Constant("criterion", "mse"))
-        cs.add_hyperparameter(UniformFloatHyperparameter(
-            "max_features", 0.5, 5, default=1))
-        cs.add_hyperparameter(UnParametrizedHyperparameter("max_depth", "None"))
-        cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_split", 2, 20, default=2))
-        cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_leaf", 1, 20, default=1))
-        cs.add_hyperparameter(
-            UnParametrizedHyperparameter("min_weight_fraction_leaf", 0.))
-        cs.add_hyperparameter(UnParametrizedHyperparameter("max_leaf_nodes", "None"))
-        cs.add_hyperparameter(CategoricalHyperparameter(
-            "bootstrap", ["True", "False"], default="True"))
+        n_estimators = Constant("n_estimators", 100)
+        criterion = Constant("criterion", "mse")
+        max_features = UniformFloatHyperparameter(
+            "max_features", 0.5, 5, default=1)
+        max_depth = UnParametrizedHyperparameter("max_depth", "None")
+        min_samples_split = UniformIntegerHyperparameter(
+            "min_samples_split", 2, 20, default=2)
+        min_samples_leaf = UniformIntegerHyperparameter(
+            "min_samples_leaf", 1, 20, default=1)
+        min_weight_fraction_leaf = \
+            UnParametrizedHyperparameter("min_weight_fraction_leaf", 0.)
+        max_leaf_nodes = UnParametrizedHyperparameter("max_leaf_nodes", "None")
+        bootstrap = CategoricalHyperparameter(
+            "bootstrap", ["True", "False"], default="True")
+
+        cs.add_hyperparameters([n_estimators, criterion, max_features,
+                                max_depth, min_samples_split, min_samples_leaf,
+                                min_weight_fraction_leaf, max_leaf_nodes,
+                                bootstrap])
+
         return cs

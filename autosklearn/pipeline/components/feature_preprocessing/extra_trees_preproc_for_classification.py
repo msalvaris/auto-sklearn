@@ -63,21 +63,24 @@ class ExtraTreesPreprocessorClassification(AutoSklearnPreprocessingAlgorithm):
 
     def fit(self, X, Y, sample_weight=None):
         from sklearn.ensemble import ExtraTreesClassifier
+        from sklearn.feature_selection import SelectFromModel
 
         num_features = X.shape[1]
         max_features = int(
             float(self.max_features) * (np.log(num_features) + 1))
         # Use at most half of the features
         max_features = max(1, min(int(X.shape[1] / 2), max_features))
-        self.preprocessor = ExtraTreesClassifier(
+        estimator = ExtraTreesClassifier(
             n_estimators=self.n_estimators, criterion=self.criterion,
             max_depth=self.max_depth, min_samples_split=self.min_samples_split,
             min_samples_leaf=self.min_samples_leaf, bootstrap=self.bootstrap,
             max_features=max_features, max_leaf_nodes=self.max_leaf_nodes,
             oob_score=self.oob_score, n_jobs=self.n_jobs, verbose=self.verbose,
-            random_state=self.random_state, class_weight=self.class_weight
-        )
-        self.preprocessor.fit(X, Y, sample_weight=sample_weight)
+            random_state=self.random_state, class_weight=self.class_weight)
+        estimator.fit(X, Y, sample_weight=sample_weight)
+        self.preprocessor = SelectFromModel(estimator=estimator,
+                                            threshold='mean',
+                                            prefit=True)
         return self
 
     def transform(self, X):
@@ -101,23 +104,25 @@ class ExtraTreesPreprocessorClassification(AutoSklearnPreprocessingAlgorithm):
     def get_hyperparameter_search_space(dataset_properties=None):
         cs = ConfigurationSpace()
 
-        n_estimators = cs.add_hyperparameter(Constant("n_estimators", 100))
-        criterion = cs.add_hyperparameter(CategoricalHyperparameter(
-            "criterion", ["gini", "entropy"], default="gini"))
-        max_features = cs.add_hyperparameter(UniformFloatHyperparameter(
-            "max_features", 0.5, 5, default=1))
+        n_estimators = Constant("n_estimators", 100)
+        criterion = CategoricalHyperparameter(
+            "criterion", ["gini", "entropy"], default="gini")
+        max_features = UniformFloatHyperparameter("max_features", 0.5, 5, default=1)
 
-        max_depth = cs.add_hyperparameter(
-            UnParametrizedHyperparameter(name="max_depth", value="None"))
+        max_depth = UnParametrizedHyperparameter(name="max_depth", value="None")
 
-        min_samples_split = cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_split", 2, 20, default=2))
-        min_samples_leaf = cs.add_hyperparameter(UniformIntegerHyperparameter(
-            "min_samples_leaf", 1, 20, default=1))
-        min_weight_fraction_leaf = cs.add_hyperparameter(Constant(
-            'min_weight_fraction_leaf', 0.))
+        min_samples_split = UniformIntegerHyperparameter(
+            "min_samples_split", 2, 20, default=2)
+        min_samples_leaf = UniformIntegerHyperparameter(
+            "min_samples_leaf", 1, 20, default=1)
+        min_weight_fraction_leaf = Constant(
+            'min_weight_fraction_leaf', 0.)
 
-        bootstrap = cs.add_hyperparameter(CategoricalHyperparameter(
-            "bootstrap", ["True", "False"], default="False"))
+        bootstrap = CategoricalHyperparameter(
+            "bootstrap", ["True", "False"], default="False")
+
+        cs.add_hyperparameters([n_estimators, criterion, max_features,
+                                max_depth, min_samples_split, min_samples_leaf,
+                                min_weight_fraction_leaf, bootstrap])
 
         return cs
